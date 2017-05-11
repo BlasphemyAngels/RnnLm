@@ -8,7 +8,7 @@ import tensorflow as tf
 
 def _read_words(filename):
     with tf.gfile.GFile(filename, "r") as f:
-        return list(jieba.cut(f.read().decode("utf-8").replace("\n",  "<eos>"), cut_all=False))
+        return list(jieba.cut(f.read().replace("\n",  "<eos>"), cut_all=False))
 
 def _build_vocab(filename):
 
@@ -29,7 +29,7 @@ def _file_to_word_ids(filename, word_to_id):
 
 
 def raw_data(data_path=None):
-    train_path = os.path.join(data_path, "a.txt")
+    train_path = os.path.join(data_path, "ptb.train.txt")
 
     word_to_id = _build_vocab(train_path)
     train_data = _file_to_word_ids(train_path, word_to_id)
@@ -37,8 +37,24 @@ def raw_data(data_path=None):
     vocabulary = len(word_to_id)
     return train_data, vocabulary
 
+def data_producer(raw_data, batch_size, num_steps, name=None):
+    with tf.name_scope(name, "data_producer", [raw_data, batch_size, num_steps]):
+        raw_data = tf.convert_to_tensor(raw_data, name="raw_data", dtype=tf.int32)
 
+        data_len = tf.size(raw_data)
+        batch_len = data_len // batch_size
+        data = tf.reshape(raw_data[0 : batch_size * batch_len], [batch_size, batch_len])
 
-if __name__ == "__main__":
-    train_data, vocabulary = raw_data("")
-    print(train_data)
+        epoch_size = (batch_len - 1) // num_steps
+        assertion = tf.assert_positive(
+            epoch_size,
+            message="epoch_size == 0, decrese batch_size or num_steps")
+        with tf.control_dependencies([assertion]):
+            epoch_size = tf.identity(epoch_size, name="epoch_size")
+        i = tf.train.range_input_producer(epoch_size, shuffle=False).dequeue()
+        x = tf.strided_slice(data, [0, i * num_steps], [batch_size, (i + 1) * num_steps])
+        x.set_shape([batch_size, num_steps])
+        y = tf.strided_slice(data, [0, i * num_steps + 1], [batch_size, (i + 1) * num_steps + 1])
+        y.set_shape([batch_size, num_steps])
+        return x, y
+
